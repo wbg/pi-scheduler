@@ -1,5 +1,9 @@
 {
   "name": "pi-scheduler",
   "version": "1.0.0",
-  "description": "Cross-platform scheduled task management for pi"
+  "description": "Cross-platform scheduled task management for pi",
+  "keywords": ["pi-package"],
+  "pi": {
+    "skills": ["."]
+  }
 }

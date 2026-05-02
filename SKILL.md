@@ -9,10 +9,10 @@ Runs `pi -p` on a cron schedule via the OS scheduler. Each job's full instructio
 
 ## Commands
 ```bash
-node ~/.pi/agent/skills/pi-scheduler/scripts/scheduler.js add "<cron>" "<label>" "<prompt>"
-node ~/.pi/agent/skills/pi-scheduler/scripts/scheduler.js list
-node ~/.pi/agent/skills/pi-scheduler/scripts/scheduler.js remove "<label>"
-node ~/.pi/agent/skills/pi-scheduler/scripts/scheduler.js logs "<label>"
+node scripts/scheduler.js add "<cron>" "<label>" "<prompt>"
+node scripts/scheduler.js list
+node scripts/scheduler.js remove "<label>"
+node scripts/scheduler.js logs "<label>"
 ```
 
 ## Workflow
