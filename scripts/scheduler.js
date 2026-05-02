@@ -12,13 +12,13 @@ const LOGS_DIR = path.join(BASE_DIR, "logs");
 const TAG = "pi-scheduler";
 const PLATFORM = os.platform();
 
-function ensureDirs() {
-  for (const dir of [BASE_DIR, MEMORY_DIR, LOGS_DIR]) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  if (!fs.existsSync(JOBS_FILE)) {
-    fs.writeFileSync(JOBS_FILE, "{}");
-  }
+// --- Init ---
+
+for (const dir of [BASE_DIR, MEMORY_DIR, LOGS_DIR]) {
+  fs.mkdirSync(dir, { recursive: true });
+}
+if (!fs.existsSync(JOBS_FILE)) {
+  fs.writeFileSync(JOBS_FILE, "{}");
 }
 
 function loadJobs() {
@@ -38,9 +38,38 @@ function findPi() {
   }
 }
 
+function validateCron(expr) {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    console.error(`Invalid cron expression: expected 5 fields, got ${parts.length}`);
+    process.exit(1);
+  }
+  const valid = /^(\*|\d+(-\d+)?(,\d+(-\d+)?)*)(\/\d+)?$/;
+  for (const p of parts) {
+    if (!valid.test(p) && p !== "*") {
+      console.error(`Invalid cron field: ${p}`);
+      process.exit(1);
+    }
+  }
+}
+
 function initMemoryFile(label, prompt, cronExpr) {
   const memFile = path.join(MEMORY_DIR, `${label}.md`);
-  const content = `# ${label}
+  if (fs.existsSync(memFile)) {
+    console.log(`  Memory file exists, preserving run history`);
+    const existing = fs.readFileSync(memFile, "utf-8");
+    const historyMatch = existing.match(/## Run History\n([\s\S]*)$/);
+    const history = historyMatch ? historyMatch[1].trim() : "No runs yet.";
+    const content = memoryTemplate(label, prompt, cronExpr, history);
+    fs.writeFileSync(memFile, content);
+  } else {
+    fs.writeFileSync(memFile, memoryTemplate(label, prompt, cronExpr, "No runs yet."));
+  }
+  return memFile;
+}
+
+function memoryTemplate(label, prompt, cronExpr, history) {
+  return `# ${label}
 
 ## Task
 ${prompt}
@@ -52,10 +81,8 @@ ${cronExpr}
 You are running as a scheduled job. Your task is described above. Execute it, then update the Run History below with a short summary. Keep only the last 3 runs — remove older entries. Do not add any other sections to this file unless the user explicitly asks.
 
 ## Run History
-No runs yet.
+${history}
 `;
-  fs.writeFileSync(memFile, content);
-  return memFile;
 }
 
 function memFilePath(label) {
@@ -76,11 +103,15 @@ function crontabList() {
   }
 }
 
-function crontabSet(content) {
+function crontabSet(lines) {
+  const content = lines.join("\n") + "\n";
   const tmp = path.join(os.tmpdir(), `pi-crontab-${Date.now()}`);
   fs.writeFileSync(tmp, content);
-  execSync(`crontab ${tmp}`);
-  fs.unlinkSync(tmp);
+  try {
+    execSync(`crontab ${tmp}`);
+  } finally {
+    fs.unlinkSync(tmp);
+  }
 }
 
 function crontabAdd(cronExpr, label) {
@@ -90,30 +121,28 @@ function crontabAdd(cronExpr, label) {
   const line = `${cronExpr} ${piPath} -p 'Execute the scheduled task described in ${memFile}' >> ${logFile} 2>&1  #${TAG}:${label}`;
 
   const current = crontabList();
-  const lines = current
-    .split("\n")
-    .filter((l) => l.trim() !== "" && !l.includes(`#${TAG}:${label}`));
+  const lines = current.split("\n").filter((l) => !l.includes(`#${TAG}:${label}`));
+  // Remove trailing empty lines, keep internal structure
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
   lines.push(line);
-  crontabSet(lines.join("\n") + "\n");
+  crontabSet(lines);
 }
 
 function crontabRemove(label) {
   const current = crontabList();
-  const filtered = current
-    .split("\n")
-    .filter((l) => l.trim() !== "" && !l.includes(`#${TAG}:${label}`));
-  if (filtered.length === 0) {
+  const filtered = current.split("\n").filter((l) => !l.includes(`#${TAG}:${label}`));
+  while (filtered.length && filtered[filtered.length - 1].trim() === "") filtered.pop();
+  if (filtered.length === 0 || filtered.every((l) => l.trim() === "")) {
     try { execSync("crontab -r 2>/dev/null"); } catch {}
     return;
   }
-  crontabSet(filtered.join("\n") + "\n");
+  crontabSet(filtered);
 }
 
 // --- schtasks (Windows) ---
 
 function cronToSchtasks(cronExpr) {
   const parts = cronExpr.trim().split(/\s+/);
-  if (parts.length !== 5) throw new Error(`Invalid cron expression: ${cronExpr}`);
   const [min, hour, dom, mon, dow] = parts;
 
   if (min.startsWith("*/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
@@ -143,7 +172,7 @@ function schtasksAdd(cronExpr, label) {
   const logFile = logFilePath(label);
   const taskName = `${TAG}-${label}`;
   const schedule = cronToSchtasks(cronExpr);
-  const cmd = `schtasks /create /tn "${taskName}" ${schedule} /tr "cmd /c ${piPath} -p \\"Execute the scheduled task described in ${memFile}\\" >> \\"${logFile}\\" 2>&1" /f`;
+  const cmd = `schtasks /create /tn "${taskName}" ${schedule} /tr "cmd /c \\"${piPath}\\" -p \\"Execute the scheduled task described in ${memFile}\\" >> \\"${logFile}\\" 2>&1" /f`;
   execSync(cmd, { encoding: "utf-8" });
 }
 
@@ -157,7 +186,7 @@ function schtasksRemove(label) {
 // --- Platform dispatch ---
 
 function addJob(cronExpr, label, prompt) {
-  ensureDirs();
+  validateCron(cronExpr);
   const jobs = loadJobs();
   const memFile = initMemoryFile(label, prompt, cronExpr);
 
@@ -175,7 +204,6 @@ function addJob(cronExpr, label, prompt) {
 }
 
 function removeJob(label) {
-  ensureDirs();
   const jobs = loadJobs();
 
   if (!jobs[label]) {
@@ -192,18 +220,17 @@ function removeJob(label) {
   delete jobs[label];
   saveJobs(jobs);
 
-  const memFile = memFilePath(label);
-  if (fs.existsSync(memFile)) fs.unlinkSync(memFile);
+  for (const f of [memFilePath(label), logFilePath(label)]) {
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  }
 
   console.log(`✓ Job "${label}" removed`);
 }
 
 function listJobs() {
-  ensureDirs();
   const jobs = loadJobs();
-  const labels = Object.keys(jobs);
 
-  if (labels.length === 0) {
+  if (Object.keys(jobs).length === 0) {
     console.log("No scheduled jobs.");
     return;
   }
@@ -217,16 +244,13 @@ function listJobs() {
 }
 
 function showLogs(label) {
-  ensureDirs();
   const logFile = logFilePath(label);
   if (!fs.existsSync(logFile)) {
     console.log(`No logs for "${label}".`);
     return;
   }
-  const content = fs.readFileSync(logFile, "utf-8");
-  const lines = content.split("\n");
-  const tail = lines.slice(-50).join("\n");
-  console.log(tail);
+  const lines = fs.readFileSync(logFile, "utf-8").split("\n");
+  console.log(lines.slice(-50).join("\n"));
 }
 
 // --- CLI ---
@@ -249,19 +273,18 @@ switch (command) {
     break;
   }
   case "remove": {
-    if (args.length < 1) {
+    if (!args[0]) {
       console.error('Usage: scheduler.js remove "<label>"');
       process.exit(1);
     }
     removeJob(args[0]);
     break;
   }
-  case "list": {
+  case "list":
     listJobs();
     break;
-  }
   case "logs": {
-    if (args.length < 1) {
+    if (!args[0]) {
       console.error('Usage: scheduler.js logs "<label>"');
       process.exit(1);
     }
