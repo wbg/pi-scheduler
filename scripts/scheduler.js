@@ -49,7 +49,7 @@ ${prompt}
 ${cronExpr}
 
 ## Instructions
-You are running as a scheduled job. Your task is described above. Execute it, then update the Run History section below with a short summary of results and observations.
+You are running as a scheduled job. Your task is described above. Execute it, then update the Run History below with a short summary. Keep only the last 3 runs — remove older entries. Do not add any other sections to this file unless the user explicitly asks.
 
 ## Run History
 No runs yet.
