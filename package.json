@@ -1,0 +1,8 @@
+{
+  "name": "pi-scheduler",
+  "version": "1.0.0",
+  "description": "Cross-platform scheduled task management for pi",
+  "dependencies": {
+    "cron-validator": "^1.3.1"
+  }
+}
