@@ -1,5 +1,5 @@
 ---
-name: scheduler
+name: pi-scheduler
 description: Schedule recurring pi tasks via system scheduler (crontab on Linux/macOS, schtasks on Windows). Each job has a persistent memory file with task details and run history. Use when the user wants to schedule, list, or remove recurring automated tasks.
 ---
 
